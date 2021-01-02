@@ -15,9 +15,9 @@
 
 
 // Pseudo queue that's always full
-int queue1[] = {0,0,0,0,0};
+int queue1[4] = {0,0,0,0};
 void queue1Push(int x) {
-  int queueSize = sizeof(queue1);
+  int queueSize = sizeof(queue1) / sizeof(queue1[0]);
   
   for (int i = 0; i < queueSize - 1; i++) {
     queue1[i] = queue1[i+1];
@@ -26,9 +26,9 @@ void queue1Push(int x) {
   queue1[queueSize - 1] = x;
 }
 
-int queue2[] = {0,0,0,0,0};
+int queue2[4] = {0,0,0,0};
 void queue2Push(int x) {
-  int queueSize = sizeof(queue2);
+  int queueSize = sizeof(queue2) / sizeof(queue2[0]);
   
   for (int i = 0; i < queueSize - 1; i++) {
     queue2[i] = queue2[i+1];
@@ -137,7 +137,11 @@ void toggleLight(bool on) {
 
 
 // Game logic
+bool timedMode = false;
+long startTime;
+long timeLimit;
 
+int highScore;
 bool gameStarted;
 int score1;
 int score2;
@@ -147,7 +151,7 @@ bool active2;
 bool jump1registered;
 bool jump2registered;
 
-long startFlashTime;
+unsigned long startFlashTime;
 bool curFlashing;
 
 // Restart the game
@@ -160,25 +164,27 @@ void resetGame() {
   gameStarted = true;
   
   toggleLight(true);
-  delay(5000); // give some time to get ready for the countdown to start
+  delay(4000); // give some time to get ready for the countdown to start
   toggleLight(false);
 }
 
 // Signal the start of the game by flashing three times
 void signalGameStart() {
   for (int i = 0; i < 3; i++) {
-    delay(1000);
+    delay(500);
     toggleLight(true);
-    delay(1000);
+    Serial.print("Starting in ");
+    Serial.println(3-i);
+    delay(500);
     toggleLight(false);
   }
 }
 
 // Randomly pick intervals to wait between flashes
-// Minimum interval time is 3 seconds, maximum is 8
+// Minimum interval time is 3 seconds, maximum is 5
 // TODO: Maybe implement artificial distribution so they tend to be around average time but sometimes are longer
 void randomDelayFlash() {
-  long duration = 3000 + random(5000);
+  long duration = 2000 + random(2000);
   delay(duration);
   toggleLight(true);
   curFlashing = true;
@@ -187,33 +193,39 @@ void randomDelayFlash() {
 
 // Check when to stop flashing AND check for jumps
 void flashCheck() {
-  Serial.println(startFlashTime);
-  Serial.println(millis());
   long timeSinceFlash = millis() - startFlashTime;
-  Serial.println(timeSinceFlash);
-
   
   // TODO: May want to incrememntly decrease the length of the flash as time goes on
-  if(timeSinceFlash >= 10000) {
+  if(timeSinceFlash >= 1200) {
     curFlashing = false;
     toggleLight(false);
 
-    // Made jump = increment score and reset the var checking if jump was made
-    if (jump1registered) {
-      score1++;
-      jump1registered = false;
-    // Missed jump = no longer active
-    } else {
-      Serial.println("Player 1 Lost");
-      active1 = false;
+    if (active1){
+      // Made jump = increment score and reset the var checking if jump was made
+      if (jump1registered) {
+        score1++;
+        Serial.print("Player 1 scored! New score: ");
+        Serial.println(score1);
+        checkNewHighScore(score1);
+        jump1registered = false;
+      // Missed jump = no longer active
+      } else {
+        Serial.println("Player 1 Lost");
+        active1 = false;
+      }
     }
 
-    if (jump2registered) {
-      score2++;
-      jump2registered = false;
-    } else {
-      Serial.println("Player 2 Lost");
-      active2 = false;
+    if (active2) {
+      if (jump2registered) {
+        score2++;
+        Serial.print("Player 2 scored! New score: ");
+        Serial.println(score2);
+        checkNewHighScore(score2);
+        jump2registered = false;
+      } else if (active2) {
+        Serial.println("Player 2 Lost");
+        active2 = false;
+      }
     }
 
     if (!active1 && !active2) {
@@ -221,7 +233,6 @@ void flashCheck() {
       gameStarted = false;
     }
   } else {
-    Serial.println("Flash Check");
     queue1Push(getDistance1());
     queue2Push(getDistance2());
 
@@ -237,7 +248,7 @@ void flashCheck() {
 
 // Determine if jump registered 1
 bool jumped1(){
-  for (int i = 0; i < sizeof(queue1); i++) {
+  for (int i = 0; i < sizeof(queue1) / sizeof(queue1[0]); i++) {
     // Doesn't count as jump if any of the past x readings are within a meter
     if (queue1[i] < 100) {
       return false;
@@ -249,7 +260,7 @@ bool jumped1(){
 
 // Determine if jump registered 2
 bool jumped2(){
-  for (int i = 0; i < sizeof(queue2); i++) {
+  for (int i = 0; i < sizeof(queue2)/ sizeof(queue2[0]); i++) {
     // Doesn't count as jump if any of the past x readings are within a meter
     if (queue2[i] < 100) {
       return false;
@@ -257,6 +268,14 @@ bool jumped2(){
   }
 
   return true;
+}
+
+bool checkNewHighScore(int score) {
+  if (score > highScore) {
+    highScore = score;
+    Serial.print("New high score! : ");
+    Serial.println(highScore);
+  }
 }
 
 
@@ -268,6 +287,7 @@ bool jumped2(){
 long loopCount;
 
 void setup() {
+  highScore = 0;
   loopCount = 0;
   startFlashTime = 0;
   
@@ -287,14 +307,22 @@ void setup() {
 
 void loop() {
   if (gameStarted) {
-    if (!curFlashing) {     
-      randomDelayFlash();
-    } else {
-      flashCheck();
+    if (buttonPressed()) {
+      Serial.println("Restarting... get in position!");
+      resetGame();
+      signalGameStart();
+      Serial.println("Starting Game...");
     }
     
+    if (!curFlashing) {
+      randomDelayFlash();
+    } else {
+      delay(50);
+      flashCheck();
+    }
   } else {
     if (buttonPressed()) {
+      Serial.println("Get in position!");
       resetGame();
       signalGameStart();
       Serial.println("Starting Game...");
